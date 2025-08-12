@@ -1,0 +1,47 @@
+# azure-pipelines-ui.yml
+trigger:
+  branches: { include: [ main ] }
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  NODE_VERSION: '18.x'
+  AZURE_SUBSCRIPTION: 'azure-conn'      # <-- service connection
+  WEBAPP_NAME: 'readmeboost-ui'         # <-- your App Service UI name
+  APP_DIR: 'frontend'
+
+steps:
+- task: NodeTool@0
+  inputs: { versionSpec: '$(NODE_VERSION)' }
+  displayName: Use Node.js
+
+- script: |
+    cd $(APP_DIR)
+    npm ci
+    npm run build
+  displayName: Build React app
+
+# Copy build to staging as site root
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: $(APP_DIR)/build
+    Contents: '**'
+    TargetFolder: $(Build.ArtifactStagingDirectory)
+  displayName: Stage build output
+
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: $(Build.ArtifactStagingDirectory)
+    includeRootFolder: false
+    archiveType: zip
+    archiveFile: $(Build.ArtifactStagingDirectory)/ui.zip
+    replaceExistingArchive: true
+
+- task: AzureWebApp@1
+  displayName: Deploy UI to Azure Web App
+  inputs:
+    azureSubscription: $(AZURE_SUBSCRIPTION)
+    appType: webAppLinux
+    appName: $(WEBAPP_NAME)
+    package: $(Build.ArtifactStagingDirectory)/ui.zip
