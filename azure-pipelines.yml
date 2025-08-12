@@ -1,38 +1,63 @@
-# azure-pipelines-api.yml
 trigger:
-  branches: { include: [ main ] }
-
-pool:
-  vmImage: ubuntu-latest
+  branches:
+    include:
+      - main
 
 variables:
-  PYTHON_VERSION: '3.10'
-  AZURE_SUBSCRIPTION: 'azure-conn'     # <-- your service connection name
-  WEBAPP_NAME: 'readmeboost-api'       # <-- your App Service API name
-  WORKING_DIR: 'backend'
+  pythonVersion: '3.10'
+  backendFolder: 'backend'
+  frontendFolder: 'frontend'
 
-steps:
-- task: UsePythonVersion@0
-  inputs: { versionSpec: '$(PYTHON_VERSION)' }
+stages:
+- stage: Build
+  jobs:
+  - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
 
-- script: |
-    python -m pip install --upgrade pip
-    pip install -r $(WORKING_DIR)/requirements.txt
-  displayName: Install backend deps
+    - script: |
+        cd $(backendFolder)
+        python -m venv venv
+        source venv/bin/activate
+        pip install --upgrade pip
+        pip install -r requirements.txt
+      displayName: 'Install backend dependencies'
 
-# Package the backend folder to deploy
-- task: ArchiveFiles@2
-  inputs:
-    rootFolderOrFile: $(WORKING_DIR)
-    includeRootFolder: false
-    archiveType: zip
-    archiveFile: $(Build.ArtifactStagingDirectory)/backend.zip
-    replaceExistingArchive: true
+    - script: |
+        cd $(frontendFolder)
+        npm install
+        npm run build
+        mkdir -p ../backend/static
+        cp -r build/* ../backend/static/
+      displayName: 'Build frontend and copy to backend/static'
 
-- task: AzureWebApp@1
-  displayName: Deploy API to Azure Web App
-  inputs:
-    azureSubscription: $(AZURE_SUBSCRIPTION)
-    appType: webAppLinux
-    appName: $(WEBAPP_NAME)
-    package: $(Build.ArtifactStagingDirectory)/backend.zip
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(backendFolder)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
+
+    - publish: '$(Build.ArtifactStagingDirectory)/app.zip'
+      artifact: drop
+
+- stage: Deploy
+  jobs:
+  - deployment: DeployWeb
+    environment: 'production'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1
+            inputs:
+              azureSubscription: 'cb6255875a-vibecode07-az'
+              appType: 'webAppLinux'
+              appName: 'CTS-VibeAppce7713-1'
+              package: '$(Pipeline.Workspace)/drop/app.zip'
